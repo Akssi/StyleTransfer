@@ -59,10 +59,50 @@ class ColorBWDataset(torch.utils.data.Dataset):
         greyImage  = self.transform(greyImage)
         return (colorImage, greyImage)
 
+class VideoFrameDataset(torch.utils.data.Dataset):
+
+    def __init__(self, root_dir, eval=False, video_dir="A"):
+        """
+        Args:
+            root_dir (string): Directory with all the images.
+        """
+        self.videoFramesPath = []
+        #self.transform = transforms.ToTensor()
+        mean = (0.5, 0.5, 0.5)
+        std = (0.5, 0.5, 0.5)
+        self.transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=mean, std=std)])
+
+        dir = os.path.expanduser(root_dir)
+        videoDir = os.path.join(
+            os.path.join(dir, "TRAIN" if not eval else "TEST"),
+            video_dir
+        )
+
+        for root, sub_folders, _ in sorted(os.walk(videoDir)):
+            for folder in sub_folders:
+                for sub_root, _,fnames  in sorted(os.walk(os.path.join(folder, "left"))):
+                    if len(fnames)%2 == 0:
+                        for fname in sorted(fnames):
+                            self.videoFramesPath.append(os.path.join(sub_root, fname))
+
+
+        print("len(self.videoFramesPath) : ", len(self.videoFramesPath))
+    def __len__(self):
+        return len(self.videoFramesPath)
+
+    def __getitem__(self, idx):
+        frame = webp.open(self.videoFramesPath[idx]).convert('RGB')
+        # greyImage  = webp.open(self.greyImgsPath[idx])
+        frame = self.transform(colorImage)
+        # greyImage  = self.transform(greyImage)
+        return frame
+
 
 parser = argparse.ArgumentParser()
 # parser.add_argument('--dataset', required=True, help='cifar10 | lsun | imagenet | folder | lfw | stylizedFrame')
-# parser.add_argument('--dataroot', required=True, help='path to dataset')
+parser.add_argument('--dataroot', required=True, help='path to dataset')
 parser.add_argument('--workers', type=int, help='number of data loading workers', default=2)
 parser.add_argument('--batchSize', type=int, default=64, help='input batch size')
 parser.add_argument('--imageSize', type=int, default=64, help='the height / width of the input image to network')
@@ -107,13 +147,10 @@ cudnn.benchmark = True
 if torch.cuda.is_available() and not opt.cuda:
     print("WARNING: You have a CUDA device, so you should probably run with --cuda")
 
-# if opt.eval:
-#     dataset = ColorBWDataset(opt.dataroot,"color_valid", "grey_valid")
-# else:   
-#     dataset = ColorBWDataset(opt.dataroot)
+dataset = VideoFrameDataset(opt.dataroot,opt.eval)
 
-# dataloader = torch.utils.data.DataLoader(dataset, batch_size=opt.batchSize,
-#                                         shuffle=True, num_workers=int(opt.workers))
+dataloader = torch.utils.data.DataLoader(dataset, batch_size=opt.batchSize,
+                                        shuffle=True, num_workers=int(opt.workers))
 
 ngpu = int(opt.ngpu)
 nz = 1
