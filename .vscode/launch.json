@@ -12,6 +12,7 @@
             "args": [
                 "--dataroot",
                 "C:\\DownloadsUTorrent\\flyingthings3d__frames_finalpass_webp\\frames_finalpass_webp",
+                "--cuda",
             ]
         },
         {

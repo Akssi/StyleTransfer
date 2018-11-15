@@ -8,16 +8,18 @@ class Vgg16(torch.nn.Module):
         super(Vgg16, self).__init__()
         features = list(vgg16(pretrained = True).features)[:23]
         self.features = nn.ModuleList(features).eval() 
-        layers = [3,8,15,22]
+        self.layers = [3,8,15,22]
         
     def forward(self, x, all_layers=True, layer=0):
         results = []
         for ii,model in enumerate(self.features):
             x = model(x)
-            if all_layers and ii in layers:
+            if all_layers and ii in self.layers:
                 results.append(x)
             elif ii == layer:
-                results.append(s)
+                results.append(x)
+                return results
+        return results
 
 class SelectiveLoadModule(torch.nn.Module):
     """Only load layers in trained models with the same name."""
