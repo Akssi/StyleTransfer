@@ -10,15 +10,15 @@ class Vgg16(torch.nn.Module):
         self.features = nn.ModuleList(features).eval() 
         self.layers = [3,8,15,22]
         
-    def forward(self, x, all_layers=True, layer=0):
+    def forward(self, x, layer=-1):
         results = []
         for ii,model in enumerate(self.features):
             x = model(x)
-            if all_layers and ii in self.layers:
-                results.append(x)
-            elif ii == layer:
-                results.append(x)
-                return results
+            if layer == -1:
+                if ii in self.layers:
+                    results.append(x)
+            elif ii == self.layers[layer]:
+                return x
         return results
 
 class SelectiveLoadModule(torch.nn.Module):

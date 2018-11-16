@@ -15,8 +15,24 @@ import torchvision.datasets as dset
 import torchvision.transforms as transforms
 import torchvision.utils as vutils
 from torch.autograd import Variable
+import webp
+from tensorboardX import SummaryWriter
 
 from network import *
+
+# From https://pytorch.org/tutorials/advanced/neural_style_tutorial.html
+def gram_matrix(input):
+    a, b, c, d = input.size()  # a=batch size(=1)
+    # b=number of feature maps
+    # (c,d)=dimensions of a f. map (N=c*d)
+
+    features = input.view(a * b, c * d)  # resise F_XL into \hat F_XL
+
+    G = torch.mm(features, features.t())  # compute the gram product
+
+    # we 'normalize' the values of the gram matrix
+    # by dividing by the number of element in each feature maps.
+    return G.div(a * b * c * d)
 
 class ColorBWDataset(torch.utils.data.Dataset):
 
@@ -71,8 +87,8 @@ class VideoFrameDataset(torch.utils.data.Dataset):
         mean = (0.5, 0.5, 0.5)
         std = (0.5, 0.5, 0.5)
         self.transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize(mean=mean, std=std)])
+            transforms.Resize((360,640)),
+            transforms.ToTensor()])
 
         dir = os.path.expanduser(root_dir)
         videoDir = os.path.join(
@@ -86,6 +102,10 @@ class VideoFrameDataset(torch.utils.data.Dataset):
                     if len(fnames)%2 == 0:
                         for fname in sorted(fnames):
                             self.videoFramesPath.append(os.path.join(sub_root, fname))
+                for sub_root, _,fnames  in sorted(os.walk(os.path.join(os.path.join(root, folder), "right"))):
+                    if len(fnames)%2 == 0:
+                        for fname in sorted(fnames):
+                            self.videoFramesPath.append(os.path.join(sub_root, fname))
 
 
         print("len(self.videoFramesPath) : ", len(self.videoFramesPath))
@@ -93,13 +113,14 @@ class VideoFrameDataset(torch.utils.data.Dataset):
         return len(self.videoFramesPath)
 
     def __getitem__(self, idx):
-        frame = webp.open(self.videoFramesPath[idx]).convert('RGB')
+        frame = webp.load_image(self.videoFramesPath[idx], "RGB")
         # greyImage  = webp.open(self.greyImgsPath[idx])
-        frame = self.transform(colorImage)
+        frame = self.transform(frame)
         # greyImage  = self.transform(greyImage)
         return frame
 
 def main():
+    onlineWriter = SummaryWriter('Runs')
     parser = argparse.ArgumentParser()
     # parser.add_argument('--dataset', required=True, help='cifar10 | lsun | imagenet | folder | lfw | stylizedFrame')
     parser.add_argument('--dataroot', required=True, help='path to dataset')
@@ -157,8 +178,9 @@ def main():
     ngf = int(opt.ngf)
     ndf = 64
     nc = 3
-    alpha = 1
-    beta = 10
+    alpha = 10
+    beta = 1
+    gamma = 0.001
 
 
     # custom weights initialization
@@ -171,29 +193,26 @@ def main():
     #         m.bias.data.fill_(0)
 
     reconet = ReCoNet()
-    lossNetwork = Vgg16()
+    lossNetwork = Vgg16().eval()
+    for param in lossNetwork.parameters():
+      param.requires_grad = False
     # reconet.apply(weights_init)
     if opt.reconet != '':
         reconet.load_state_dict(torch.load(opt.reconet))
-    print(reconet)
-    print(lossNetwork)
+    # print(reconet)
+    # print(lossNetwork)
 
     criterionL1 = nn.L1Loss()
     criterionL2 = nn.MSELoss()
 
-    greyscale = torch.FloatTensor(opt.batchSize, 1, 640, 360)
-    color = torch.FloatTensor(opt.batchSize, 3, 640, 360)
-    label = torch.FloatTensor(opt.batchSize)
-
-
-    real_label = 1
-    stylizedFrame_label = 0
+    frame = torch.FloatTensor(opt.batchSize, 3, 360, 640)
 
     if opt.cuda:
         reconet.cuda()
+        lossNetwork.cuda()
         criterionL1.cuda()
         criterionL2.cuda()
-        greyscale, color, label = greyscale.cuda(), color.cuda(), label.cuda()
+        frame = frame.cuda()
 
     style_names = ('autoportrait', 'candy', 'composition', 'edtaonisl', 'udnie')
     style_model_path = 'models/weights/'
@@ -201,66 +220,104 @@ def main():
     mean = (0.5, 0.5, 0.5)
     std = (0.5, 0.5, 0.5)
     imageTransform = transforms.Compose([
-                transforms.Resize((640,360)),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=mean, std=std)])
+                transforms.Resize((360,640)),
+                transforms.ToTensor()])
                 
     styleImg = imageTransform(Image.open(style_img_path+style_names[0]+'.jpg').convert('RGB')).unsqueeze(0)
+    onlineWriter.add_image('Input/StyleRef', styleImg)
+    onlineWriter.add_scalar('Input/Alpha (Content loss)', alpha)
+    onlineWriter.add_scalar('Input/Beta (Style loss)', beta)
+    onlineWriter.add_scalar('Input/Gamma (TV loss)', gamma)
+    onlineWriter.add_scalar('Input/Learning Rate', opt.lr)
 
     # -----------------------------------------------------------------------------------
     # Run training
     # -----------------------------------------------------------------------------------
     if not opt.eval:
-        loss_G = 1
         # setup optimizer
         optimizer = optim.Adam(reconet.parameters(), lr=opt.lr, betas=(opt.beta1, 0.99))
-        
-        # Get style feature maps from VGG-16 layers relu1_2, relu2_2, relu3_3, relu4_3
-        styleRefFeatures = lossNetwork.forward(Variable(styleImg))
+        if opt.cuda:
+            styleImg = styleImg.cuda()
+
+        with torch.no_grad():
+            # Get style feature maps from VGG-16 layers relu1_2, relu2_2, relu3_3, relu4_3
+            styleRefFeatures = lossNetwork.forward(styleImg)
 
         for epoch in range(opt.niter):
-            for i, frame in enumerate(dataloader, 0):
+            if epoch > 1:
+                alpha = 1
+                beta = 10
+            for i, img in enumerate(dataloader, 0):
 
-                # generate stylizedFrame
                 
                 ############################
                 # (1) Generate Stylized Frame & Calculate Losses
                 ###########################
 
+                frame.copy_(img)
+
                 # Generate stylizd frame using ReCoNet
-                stylizedFrame = reconet.forward(frame.detach())
+                stylizedFrame = reconet.forward(Variable(frame))
 
                 # Get features maps from VGG-16 network for the stylized and actual frame
-                stylizedFrameFeatures = Vgg16.forward(stylizedFrame)
-                contentRefFeature = Vgg16.forward(frame, all_layers=False, layer=2)
+                stylizedFrameFeatures = lossNetwork.forward(stylizedFrame)
+                contentRefFeature = lossNetwork.forward(frame.detach(), layer=2)
 
                 # Sum style loss on all feature maps
                 styleLoss = 0
-                for refFeature, feature in styleRefFeatures, stylizedFrameFeatures:
+                for refFeature, feature in zip(styleRefFeatures, stylizedFrameFeatures):
+                    refFeature = gram_matrix(refFeature)
+                    feature = gram_matrix(feature)
                     styleLoss += criterionL2(refFeature, feature)
-                
+
                 # Calculate content loss using layer relu3_3 feature map from VGG-16
                 contentLoss = criterionL2(contentRefFeature, stylizedFrameFeatures[2])
+                
+                totalDivergenceLoss = torch.sum(torch.abs(stylizedFrame[:,:,:,:-1] - stylizedFrame[:,:,:,1:])) \
+                    + torch.sum(torch.abs(stylizedFrame[:,:,:-1,:] - stylizedFrame[:,:,1:,:]))
 
                 # Final loss
-                loss = alpha * contentLoss + beta * styleLoss
+                loss = alpha * contentLoss \
+                    + beta * styleLoss \
+                    + gamma * totalDivergenceLoss
+
+                
+                ############################
+                # (2) Backpropagate and optimize network weights
+                ###########################
+
                 loss.backward()
                 optimizer.step()
 
-                print('[%d/%d][%d/%d] Style Loss: %.4f Content Loss: %.4f'
-                    % (epoch, opt.niter, i, len(dataloader),
-                        styleLoss.data[0], contentLoss.data[0]))
+                
+                ############################
+                # (3) Log and do checkpointing
+                ###########################
+
+                # Write to online logs
+                onlineWriter.add_scalar('Loss/ContentLoss', contentLoss, i)
+                onlineWriter.add_scalar('loss/StyleLoss', styleLoss, i)
+                onlineWriter.add_scalar('loss/FinalLoss', loss, i)
+                # Write to console
+                # print('[%d/%d][%d/%d] Style Loss: %.4f Content Loss: %.4f'
+                #     % (epoch, opt.niter, i, len(dataloader),
+                #         styleLoss, contentLoss))
 
                 with open('log.csv', 'a') as f:
                     writer = csv.writer(f)
-                    writer.writerow([epoch, i, styleLoss.data[0], contentLoss.data[0]])
+                    writer.writerow([epoch, i, styleLoss, contentLoss])
                 if i % 100 == 0:
+                    torch.save(reconet.state_dict(), '%s/reconet_epoch_%d.pth' % (opt.outf, i))
                     vutils.save_image(stylizedFrame.data,
-                            '%s/stylizedFrame_samples_epoch_%03d.png' % (opt.outf, epoch),
+                            '%s/stylizedFrame_samples_epoch_%03d.png' % (style_model_path, epoch),
                             normalize=True)
+                    onlineWriter.add_image('output/Frame', frame, i)
+                    onlineWriter.add_image('output/StylizedFrame', stylizedFrame, i)
 
             # do checkpointing
-            torch.save(reconet.state_dict(), '%s/reconet_epoch_%d.pth' % (opt.outf, epoch))
+            torch.save(reconet.state_dict(), '%s/reconet_epoch_%d.pth' % (style_model_path, epoch))
+
+    onlineWriter.close()
     # -----------------------------------------------------------------------------------
     # Run test
     # -----------------------------------------------------------------------------------

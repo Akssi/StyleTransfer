@@ -49,6 +49,9 @@ coverage.xml
 *.cover
 .hypothesis/
 
+# Training logs
+Runs/
+
 # Translations
 *.mo
 *.pot
