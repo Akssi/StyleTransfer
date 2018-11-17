@@ -10,7 +10,7 @@ from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from network import *
 
 
-use_cuda = 0
+use_cuda = 1
 style_names = ('autoportrait', 'candy', 'composition', 'edtaonisl', 'udnie')
 style_model_path = 'models/weights/'
 style_img_path = 'models/style/'
@@ -39,7 +39,7 @@ class ReCoNetTransfer:
 
     def change_model(self, model_path):
         checkpoint = torch.load('models/weights/' + 'reconet_epoch_0.pth')
-        self.model.load_state_dict(checkpoint['model_state_dict'])
+        self.model.load_state_dict(checkpoint)
         if use_cuda:
             self.model.cuda()
         self.model.eval()
