@@ -38,7 +38,7 @@ class ReCoNetTransfer:
         return y_np, inference_time
 
     def change_model(self, model_path):
-        checkpoint = torch.load(style_model_path + 'reconet_epoch_0.pth')
+        checkpoint = torch.load('models/weights/' + 'reconet_epoch_0.pth')
         self.model.load_state_dict(checkpoint['model_state_dict'])
         if use_cuda:
             self.model.cuda()
