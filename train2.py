@@ -98,6 +98,7 @@ def main():
     parser.add_argument('--ngpu', type=int, default=1, help='number of GPUs to use')
     parser.add_argument('--netG', default='', help="path to netG (to continue training)")
     parser.add_argument('--init', default='', help="path to reconet weights (to continue training/test)")
+    parser.add_argument('--initIter',type=int, default=-1, help="path to reconet weights (to continue training/test)")
     parser.add_argument('--outf', default='.', help='folder to output images and model checkpoints')
     parser.add_argument('--manualSeed', type=int, help='manual seed')
     parser.add_argument('--eval', action='store_true', help='run on test data')
@@ -125,6 +126,9 @@ def main():
 
     if opt.cuda:
         device = 'cuda'
+        cudnn.benchmark = True
+        cudnn.fastest = True
+        torch.set_default_tensor_type('torch.cuda.FloatTensor')
     else:
         device = 'cpu'
 
@@ -168,16 +172,18 @@ def main():
 
     # reconet.apply(weights_init)
     if opt.init != '':
-        reconet.load_state_dict(torch.load(opt.init))
-
+        if opt.initIter != -1:
+            reconet.load_state_dict(torch.load(opt.init))
+        else:
+            raise ValueError("--initIter undefined can't load checkpoint")
 
     style_names = ('autoportrait', 'candy', 'composition', 'edtaonisl', 'udnie')
     style_model_path = 'models/weights/'
-    style_img_path = 'models/style/'+style_names[min(max(opt.style,0),5)]
+    style_img_path = 'models/style/'+style_names[min(max(opt.style,0),4)]
 
 
-    styleRef = style_transform(Image.open(style_img_path+'.jpg'))
-    onlineWriter.add_image('Input/StyleRef', styleRef)
+    styleRef = transform(Image.open(style_img_path+'.jpg'))
+    onlineWriter.add_image('Input/StyleRef', style_transform(Image.open(style_img_path+'.jpg')))
     styleRef = styleRef.unsqueeze(0).to(device)
 
     # Get style feature maps from VGG-16 layers relu1_2, relu2_2, relu3_3, relu4_3
@@ -196,7 +202,8 @@ def main():
     
         for epoch in range(opt.niter):
             for i, frame in enumerate(dataloader):
-
+                if i < opt.initIter:
+                    continue
                 optimizer.zero_grad()
                 
                 ############################
@@ -204,7 +211,7 @@ def main():
                 ###########################
                 # frame.copy_(img)
                 # frame = Variable(frame)
-                frame = frame.to(device)
+                frame = Variable(frame.data.to(device))
 
                 # Generate stylizd frame using ReCoNet
                 stylizedFrame = reconet(frame)
