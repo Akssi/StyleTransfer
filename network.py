@@ -2,26 +2,6 @@ import torch
 import torch.nn as nn
 import numpy as np
 from torchvision.models import vgg16
-<<<<<<< HEAD
-
-class Vgg16(torch.nn.Module):
-    def __init__(self):
-        super(Vgg16, self).__init__()
-        features = list(vgg16(pretrained = True).features)[:23]
-        self.features = nn.ModuleList(features).eval() 
-        self.layers = [3,8,15,22]
-        
-    def forward(self, x, layer=-1):
-        results = []
-        for ii,model in enumerate(self.features):
-            x = model(x)
-            if layer == -1:
-                if ii in self.layers:
-                    results.append(x)
-            elif ii == self.layers[layer]:
-                return x
-        return results
-=======
 from collections import namedtuple
 
 # class Vgg16(torch.nn.Module):
@@ -71,7 +51,6 @@ class Vgg16(torch.nn.Module):
         vgg_outputs = namedtuple("VggOutputs", ['relu1_2', 'relu2_2', 'relu3_3', 'relu4_3'])
         out = vgg_outputs(h_relu1_2, h_relu2_2, h_relu3_3, h_relu4_3)
         return out
->>>>>>> 9138f8d... Working code with test function semi complete.
 
 class SelectiveLoadModule(torch.nn.Module):
     """Only load layers in trained models with the same name."""

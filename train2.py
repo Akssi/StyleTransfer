@@ -89,10 +89,10 @@ def main():
     parser.add_argument('--batchSize', type=int, default=1, help='input batch size')
     parser.add_argument('--imageSize', type=int, default=64, help='the height / width of the input image to network')
     parser.add_argument('--nz', type=int, default=100, help='size of the latent z vector')
-    parser.add_argument('--ngf', type=int, default=64)
-    parser.add_argument('--ndf', type=int, default=64)
+    parser.add_argument('--alpha', type=int, default=1e5)
+    parser.add_argument('--beta', type=int, default=1e10)
     parser.add_argument('--niter', type=int, default=2, help='number of epochs to train for')
-    parser.add_argument('--lr', type=float, default=1e-4, help='learning rate, default=0.0002')
+    parser.add_argument('--lr', type=float, default=1e-1, help='learning rate, default=0.0002')
     parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for adam. default=0.5')
     parser.add_argument('--cuda', action='store_true', help='enables cuda')
     parser.add_argument('--ngpu', type=int, default=1, help='number of GPUs to use')
@@ -101,6 +101,8 @@ def main():
     parser.add_argument('--outf', default='.', help='folder to output images and model checkpoints')
     parser.add_argument('--manualSeed', type=int, help='manual seed')
     parser.add_argument('--eval', action='store_true', help='run on test data')
+    parser.add_argument('--style', type=int, default=0)
+
 
     # Holds console output
     logs = []
@@ -135,17 +137,22 @@ def main():
         torch.cuda.manual_seed_all(opt.manualSeed)
 
     transform = transforms.Compose([
-                transforms.Resize((640,360)),
+                transforms.Resize((360,360)),
                 transforms.ToTensor(),
                 transforms.Lambda(lambda x: x.mul(255)),
+                ])
+    style_transform = transforms.Compose([
+                transforms.Resize((360,360)),
+                transforms.ToTensor(),
+                transforms.Lambda(lambda x: (1-x).mul(255)),
                 ])
 
     dataset = VideoFrameDataset(opt.dataroot, transform, opt.eval)
 
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=opt.batchSize)
 
-    alpha = 1e5
-    beta = 1e10
+    alpha = opt.alpha
+    beta = opt.beta
     gamma = 0
 
     reconet = ReCoNet().to(device)
@@ -166,10 +173,10 @@ def main():
 
     style_names = ('autoportrait', 'candy', 'composition', 'edtaonisl', 'udnie')
     style_model_path = 'models/weights/'
-    style_img_path = 'models/style/'+style_names[0]
+    style_img_path = 'models/style/'+style_names[min(max(opt.style,0),5)]
 
 
-    styleRef = transform(Image.open(style_img_path+'.jpg'))
+    styleRef = style_transform(Image.open(style_img_path+'.jpg'))
     onlineWriter.add_image('Input/StyleRef', styleRef)
     styleRef = styleRef.unsqueeze(0).to(device)
 
@@ -251,12 +258,9 @@ def main():
                 if (i+1) % 1500 == 0:
                     torch.save(reconet.state_dict(), '%s/reconet_epoch_%d.pth' % (opt.outf, i))
                     vutils.save_image(stylizedFrame.data,
-                            '%s/stylizedFrame_samples_epoch_%03d.png' % (style_model_path, epoch),
-                            normalize=True)
-                    onlineWriter.add_image('Output/Current Iter/Frame', (frame.data), i)
-                    onlineWriter.add_image('Output/Current Iter/StylizedFrame', (stylizedFrame.data), i)
-                    # onlineWriter.add_image('Output/Current Iter/Frame', frame, i)
-                    # onlineWriter.add_image('Output/Current Iter/StylizedFrame', stylizedFrame, i)
+                            '%s/stylizedFrame_samples_batch_%03d.png' % (style_model_path, i))
+                    onlineWriter.add_image('Output/Current Iter/Frame', (frame), i)
+                    onlineWriter.add_image('Output/Current Iter/StylizedFrame', (stylizedFrame), i)
 
             # Write to online logs
             onlineWriter.add_scalar('Loss/ContentLoss', contentLoss, epoch)
