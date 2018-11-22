@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from torchvision.models import vgg16
+<<<<<<< HEAD
 
 class Vgg16(torch.nn.Module):
     def __init__(self):
@@ -20,6 +21,57 @@ class Vgg16(torch.nn.Module):
             elif ii == self.layers[layer]:
                 return x
         return results
+=======
+from collections import namedtuple
+
+# class Vgg16(torch.nn.Module):
+#     def __init__(self, device = "cpu"):
+#         super(Vgg16, self).__init__()
+#         features = list(vgg16(pretrained = True).features)[:23]
+#         self.features = nn.ModuleList(features).to(device).eval() 
+#         self.layers = [3,8,15,22]
+        
+#     def forward(self, x):
+#         results = []
+#         for ii,model in enumerate(self.features):
+#             x = model(x)
+#             if ii in self.layers:
+#                 results.append(x.detach())
+#         return results
+
+class Vgg16(torch.nn.Module):
+    def __init__(self, device='cpu'):
+        super(Vgg16, self).__init__()
+        vgg_pretrained_features = vgg16(pretrained=True).features
+        self.slice1 = torch.nn.Sequential()
+        self.slice2 = torch.nn.Sequential()
+        self.slice3 = torch.nn.Sequential()
+        self.slice4 = torch.nn.Sequential()
+        for x in range(4):
+            self.slice1.add_module(str(x), vgg_pretrained_features[x].to(device))
+        for x in range(4, 9):
+            self.slice2.add_module(str(x), vgg_pretrained_features[x].to(device))
+        for x in range(9, 16):
+            self.slice3.add_module(str(x), vgg_pretrained_features[x].to(device))
+        for x in range(16, 23):
+            self.slice4.add_module(str(x), vgg_pretrained_features[x].to(device))
+        
+        for param in self.parameters():
+            param.requires_grad = False
+
+    def forward(self, X):
+        h = self.slice1(X)
+        h_relu1_2 = h
+        h = self.slice2(h)
+        h_relu2_2 = h
+        h = self.slice3(h)
+        h_relu3_3 = h
+        h = self.slice4(h)
+        h_relu4_3 = h
+        vgg_outputs = namedtuple("VggOutputs", ['relu1_2', 'relu2_2', 'relu3_3', 'relu4_3'])
+        out = vgg_outputs(h_relu1_2, h_relu2_2, h_relu3_3, h_relu4_3)
+        return out
+>>>>>>> 9138f8d... Working code with test function semi complete.
 
 class SelectiveLoadModule(torch.nn.Module):
     """Only load layers in trained models with the same name."""
