@@ -102,6 +102,7 @@ def main():
     parser.add_argument('--outf', default='.', help='folder to output images and model checkpoints')
     parser.add_argument('--manualSeed', type=int, help='manual seed')
     parser.add_argument('--eval', action='store_true', help='run on test data')
+    parser.add_argument('--v', action='store_true', help='print to console')
     parser.add_argument('--style', type=int, default=0)
 
 
@@ -254,10 +255,12 @@ def main():
                 onlineWriter.add_scalar('Loss/Current Iter/StyleLoss', styleLoss, i)
                 # onlineWriter.add_scalar('Loss/Current Iter/TVLoss', totalDivergenceLoss, i)
                 onlineWriter.add_scalar('Loss/Current Iter/FinalLoss', loss, i)
-                # Write to console
-                print('[%d/%d][%d/%d] Style Loss: %.4f Content Loss: %.4f'
-                    % (epoch, opt.niter, i, len(dataloader),
-                        styleLoss, contentLoss))
+
+                if opt.v:
+                    # Write to console
+                    print('[%d/%d][%d/%d] Style Loss: %.4f Content Loss: %.4f'
+                        % (epoch, opt.niter, i, len(dataloader),
+                            styleLoss, contentLoss))
 
                 # with open('log.csv', 'a') as f:
                 #     writer = csv.writer(f)
