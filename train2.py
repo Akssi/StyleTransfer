@@ -67,7 +67,10 @@ class VideoFrameDataset(torch.utils.data.Dataset):
         return len(self.videoFramesPath)
 
     def __getitem__(self, idx):
-        frame = webp.load_image(self.videoFramesPath[idx], "RGB")
+        if self.videoFramesPath[idx].endswith(".webp"):
+            frame = webp.load_image(self.videoFramesPath[idx], "RGB")
+        else:
+            frame = Image.open(self.videoFramesPath[idx]).convert('RGB')
         # greyImage  = webp.open(self.greyImgsPath[idx])
         frame = self.transform(frame)
         # greyImage  = self.transform(greyImage)
@@ -207,7 +210,7 @@ def main():
                     i = opt.initIter
                     continue
                 if i % 100 == 0:
-                    opt.lr = max(opt.lr/2, 1e-7)
+                    opt.lr = max(opt.lr/2, 1e-5)
                 initDone = True
 
                 optimizer.zero_grad()
