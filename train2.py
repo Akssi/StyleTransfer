@@ -206,7 +206,7 @@ def main():
                 if i < opt.initIter and (not initDone):
                     i = opt.initIter
                     continue
-                if i % 50 == 0:
+                if i % 100 == 0:
                     opt.lr = max(opt.lr/2, 1e-7)
                 initDone = True
 
