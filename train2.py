@@ -174,6 +174,7 @@ def main():
     if opt.init != '':
         if opt.initIter != -1:
             reconet.load_state_dict(torch.load(opt.init))
+            initDone = False
         else:
             raise ValueError("--initIter undefined can't load checkpoint")
 
@@ -202,8 +203,11 @@ def main():
     
         for epoch in range(opt.niter):
             for i, frame in enumerate(dataloader):
-                if i < opt.initIter:
+                if i < opt.initIter and (not initDone):
+                    i = opt.initIter
                     continue
+                initDone = True
+
                 optimizer.zero_grad()
                 
                 ############################
@@ -274,7 +278,7 @@ def main():
             # Write to online logs
             onlineWriter.add_scalar('Loss/ContentLoss', contentLoss, epoch)
             onlineWriter.add_scalar('Loss/StyleLoss', styleLoss, epoch)
-            onlineWriter.add_scalar('Loss/TVLoss', totalDivergenceLoss, epoch)
+            # onlineWriter.add_scalar('Loss/TVLoss', totalDivergenceLoss, epoch)
             onlineWriter.add_scalar('Loss/FinalLoss', loss, epoch)
             onlineWriter.add_image('Output/Frame', frame, epoch)
             onlineWriter.add_image('Output/StylizedFrame', stylizedFrame, epoch)
