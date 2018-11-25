@@ -102,6 +102,7 @@ def main():
     parser.add_argument('--init', default='', help="path to reconet weights (to continue training/test)")
     parser.add_argument('--initIter',type=int, default=-1, help="path to reconet weights (to continue training/test)")
     parser.add_argument('--outf', default='.', help='folder to output images and model checkpoints')
+    parser.add_argument('--evalOutput', default='evalOutput', help='folder to output images and model checkpoints')
     parser.add_argument('--manualSeed', type=int, help='manual seed')
     parser.add_argument('--eval', action='store_true', help='run on test data')
     parser.add_argument('--v', action='store_true', help='print to console')
@@ -175,11 +176,8 @@ def main():
 
     # reconet.apply(weights_init)
     if opt.init != '':
-        if opt.initIter != -1:
             reconet.load_state_dict(torch.load(opt.init))
             initDone = False
-        else:
-            raise ValueError("--initIter undefined can't load checkpoint")
 
     style_names = ('autoportrait', 'candy', 'composition', 'edtaonisl', 'udnie')
     style_model_path = 'models/weights/'
@@ -197,21 +195,25 @@ def main():
     onlineWriter.add_scalar('Input/Alpha (Content loss)', alpha)
     onlineWriter.add_scalar('Input/Beta (Style loss)', beta)
     onlineWriter.add_scalar('Input/Gamma (TV loss)', gamma)
-    onlineWriter.add_scalar('Input/Learning Rate', opt.lr)
+    onlineWriter.add_scalar('Input/Learning Rate', opt.lr, 0)
 
     # -----------------------------------------------------------------------------------
     # Run training
     # -----------------------------------------------------------------------------------
     if not opt.eval:
     
+        if opt.init != '' and opt.initIter == -1:
+            raise ValueError("--initIter undefined can't load checkpoint")
+
         for epoch in range(opt.niter):
             for i, frame in enumerate(dataloader):
                 if i < opt.initIter and (not initDone):
                     i = opt.initIter
                     continue
-                if i % 100 == 0:
-                    opt.lr = max(opt.lr/2, 1e-5)
+                if i % 1000 == 0:
+                    opt.lr = max(opt.lr/2, 1e-4)
                 initDone = True
+                onlineWriter.add_scalar('Input/Learning Rate', opt.lr, i)
 
                 optimizer.zero_grad()
                 
@@ -334,10 +336,10 @@ def main():
             ############################
             # (3) Log and do checkpointing
             ###########################
-            onlineWriter.add_scalar('Loss/Current Iter/ContentLoss', contentLoss, i)
-            onlineWriter.add_scalar('Loss/Current Iter/StyleLoss', styleLoss, i)
+            # onlineWriter.add_scalar('Loss/Current Iter/ContentLoss', contentLoss, i)
+            # onlineWriter.add_scalar('Loss/Current Iter/StyleLoss', styleLoss, i)
             # onlineWriter.add_scalar('Loss/Current Iter/TVLoss', totalDivergenceLoss, i)
-            onlineWriter.add_scalar('Loss/Current Iter/FinalLoss', loss, i)
+            # onlineWriter.add_scalar('Loss/Current Iter/FinalLoss', loss, i)
 
             # # Write to console
             # print('[%d/%d][%d/%d] Style Loss: %.4f Content Loss: %.4f'
@@ -345,7 +347,7 @@ def main():
             #         styleLoss, contentLoss))
 
             vutils.save_image(stylizedFrame.data,
-                    '%s/stylizedFrame_%03d.png' % (style_model_path, i))
+                    '%s/stylizedFrame_%03d.png' % (opt.evalOutput, i))
        
         
 if __name__ == "__main__":
