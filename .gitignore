@@ -50,7 +50,7 @@ coverage.xml
 .hypothesis/
 
 # Training logs
-Runs/
+runs/
 
 # Translations
 *.mo
