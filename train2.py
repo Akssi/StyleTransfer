@@ -93,9 +93,9 @@ def main():
     parser.add_argument('--imageSize', type=int, default=64, help='the height / width of the input image to network')
     parser.add_argument('--nz', type=int, default=100, help='size of the latent z vector')
     parser.add_argument('--alpha', type=int, default=1e5)
-    parser.add_argument('--beta', type=int, default=1e6)
+    parser.add_argument('--beta', type=int, default=1e10)
     parser.add_argument('--niter', type=int, default=2, help='number of epochs to train for')
-    parser.add_argument('--lr', type=float, default=1e-3, help='learning rate, default=0.001')
+    parser.add_argument('--lr', type=float, default=1e-2, help='learning rate, default=0.001')
     parser.add_argument('--cuda', action='store_true', help='enables cuda')
     parser.add_argument('--ngpu', type=int, default=1, help='number of GPUs to use')
     parser.add_argument('--netG', default='', help="path to netG (to continue training)")
@@ -211,7 +211,7 @@ def main():
                     i = opt.initIter
                     continue
                 if i % 1000 == 0:
-                    opt.lr = max(opt.lr/2, 1e-4)
+                    opt.lr = max(opt.lr/1.2, 1e-3)
                 initDone = True
                 onlineWriter.add_scalar('Input/Learning Rate', opt.lr, i)
 
@@ -238,7 +238,7 @@ def main():
                 frame_features = lossNetwork(frame_norm)
                 
                 # Calculate content loss using layer relu3_3 feature map from VGG-16
-                contentLoss = criterionL2(stylizedFrame_features[1], frame_features[1].expand_as(stylizedFrame_features[1]))
+                contentLoss = criterionL2(stylizedFrame_features[2], frame_features[2].expand_as(stylizedFrame_features[1]))
                 contentLoss *= alpha
                 # Sum style loss on all feature maps
                 styleLoss = 0.
