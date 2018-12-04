@@ -10,8 +10,8 @@ The script train_temporalLoss.py trains the network with the additional temporal
 The savedModel folder contains a few saved weights for diffrent style and for diffrent parameter values.
 
 # Datasets
-The training for this network was done using a two diffrent dataset. 
-[COCO Dataset](http://cocodataset.org/#home)
+The training for this network was done using a two diffrent dataset.  
+[COCO Dataset](http://cocodataset.org/#home)  
 [Monkaa Dataset](https://lmb.informatik.uni-freiburg.de/resources/datasets/SceneFlowDatasets.en.html)
 
 # Results
