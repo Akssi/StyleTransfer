@@ -20,26 +20,7 @@ import torchvision.utils as vutils
 from torch.autograd import Variable
 import webp
 from tensorboardX import SummaryWriter
-
 from network import *
-
-
-IMAGENET_MEAN = [0.485, 0.456, 0.406]
-IMAGENET_STD = [0.229, 0.224, 0.225]
-
-# From https://pytorch.org/tutorials/advanced/neural_style_tutorial.html
-def gram_matrix(input):
-    a, b, c, d = input.size()  # a=batch size(=1)
-    # b=number of feature maps
-    # (c,d)=dimensions of a f. map (N=c*d)
-
-    features = input.view(a * b, c * d)  # resise F_XL into \hat F_XL
-
-    G = torch.mm(features, features.t())  # compute the gram product
-
-    # we 'normalize' the values of the gram matrix
-    # by dividing by the number of element in each feature maps.
-    return G.div(a * b * c * d)
 
 class VideoFrameDataset(torch.utils.data.Dataset):
 
@@ -71,10 +52,27 @@ class VideoFrameDataset(torch.utils.data.Dataset):
             frame = webp.load_image(self.videoFramesPath[idx], "RGB")
         else:
             frame = Image.open(self.videoFramesPath[idx]).convert('RGB')
-        # greyImage  = webp.open(self.greyImgsPath[idx])
         frame = self.transform(frame)
-        # greyImage  = self.transform(greyImage)
         return frame
+
+#region Utility 
+
+IMAGENET_MEAN = [0.485, 0.456, 0.406]
+IMAGENET_STD = [0.229, 0.224, 0.225]
+
+# From https://pytorch.org/tutorials/advanced/neural_style_tutorial.html
+def gram_matrix(input):
+    a, b, c, d = input.size()  # a=batch size(=1)
+    # b=number of feature maps
+    # (c,d)=dimensions of a f. map (N=c*d)
+
+    features = input.view(a * b, c * d)  # resise F_XL into \hat F_XL
+
+    G = torch.mm(features, features.t())  # compute the gram product
+
+    # we 'normalize' the values of the gram matrix
+    # by dividing by the number of element in each feature maps.
+    return G.div(a * b * c * d)
 
 
 def normalizeImageTensor(img):
@@ -84,39 +82,25 @@ def normalizeImageTensor(img):
     img = img.div_(255.0)
     return (img - mean) / std
 
+#endregion
+
 def main():
     parser = argparse.ArgumentParser()
-    # parser.add_argument('--dataset', required=True, help='cifar10 | lsun | imagenet | folder | lfw | stylizedFrame')
     parser.add_argument('--dataroot', required=True, help='path to dataset')
-    parser.add_argument('--workers', type=int, help='number of data loading workers', default=0)
-    parser.add_argument('--batchSize', type=int, default=1, help='input batch size')
-    parser.add_argument('--imageSize', type=int, default=64, help='the height / width of the input image to network')
-    parser.add_argument('--nz', type=int, default=100, help='size of the latent z vector')
+    parser.add_argument('--imageSize', type=int, default=360, help='the height / width of the input image to network')
     parser.add_argument('--alpha', type=int, default=1e5)
     parser.add_argument('--beta', type=int, default=1e10)
     parser.add_argument('--niter', type=int, default=2, help='number of epochs to train for')
     parser.add_argument('--lr', type=float, default=1e-2, help='learning rate, default=0.001')
     parser.add_argument('--cuda', action='store_true', help='enables cuda')
-    parser.add_argument('--ngpu', type=int, default=1, help='number of GPUs to use')
-    parser.add_argument('--netG', default='', help="path to netG (to continue training)")
     parser.add_argument('--init', default='', help="path to reconet weights (to continue training/test)")
     parser.add_argument('--initIter',type=int, default=-1, help="path to reconet weights (to continue training/test)")
-    parser.add_argument('--outf', default='.', help='folder to output images and model checkpoints')
     parser.add_argument('--evalOutput', default='evalOutput', help='folder to output images and model checkpoints')
-    parser.add_argument('--manualSeed', type=int, help='manual seed')
     parser.add_argument('--eval', action='store_true', help='run on test data')
     parser.add_argument('--v', action='store_true', help='print to console')
     parser.add_argument('--style', type=int, default=0)
 
-
-    # Holds console output
-    logs = []
-    with open('log.csv', 'a') as f:
-        writer = csv.writer(f)
-        writer.writerow('New experiment')
-
     opt = parser.parse_args()
-    # print(opt)
 
     try:
         os.makedirs(opt.outf)
@@ -136,39 +120,38 @@ def main():
     else:
         device = 'cpu'
 
-    if opt.manualSeed is None:
-        opt.manualSeed = random.randint(1, 10000)
+    seed = random.randint(1, 10000)
 
-    np.random.seed(opt.manualSeed)
-    torch.manual_seed(opt.manualSeed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
     if opt.cuda:
-        torch.cuda.manual_seed_all(opt.manualSeed)
+        torch.cuda.manual_seed_all(seed)
 
+    # Setup image transforms
     transform = transforms.Compose([
-                transforms.Resize(360, 360),
+                transforms.Resize((opt.imageSize, opt.imageSize)),
                 transforms.ToTensor(),
                 transforms.Lambda(lambda x: x.mul(255)),
                 ])
     style_transform = transforms.Compose([
-                transforms.Resize((360,360)),
+                transforms.Resize((opt.imageSize,opt.imageSize)),
                 transforms.ToTensor(),
                 transforms.Lambda(lambda x: (1-x).mul(255)),
                 ])
 
+    # Setup image & style dataset
     dataset = VideoFrameDataset(opt.dataroot, transform, opt.eval)
-
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=opt.batchSize)
 
+    # Loss factors
     alpha = opt.alpha
     beta = opt.beta
     gamma = 0
 
+    # Setup networks, optimizer, losses
     reconet = ReCoNet().to(device)
-
-    # setup optimizer
     optimizer = optim.Adam(reconet.parameters(), lr=opt.lr)
     criterionL2 = nn.MSELoss().to(device)
-
     lossNetwork = Vgg16().to(device)
 
     for param in lossNetwork.parameters():
@@ -178,23 +161,27 @@ def main():
         reconet.load_state_dict(torch.load(opt.init))
         initDone = False
 
+    # -----------------------------------------------------------------------------------
+    # Run training
+    # -----------------------------------------------------------------------------------
     if not opt.eval:
+
+        # Load style reference image
         style_names = ('autoportrait', 'candy', 'composition', 'mosaic', 'udnie', 'color')
         style_model_path = 'reconet/models/weights/'
         style_img_path = 'reconet/models/style/'+style_names[min(max(opt.style,0),5)]
 
-
         styleRef = transform(Image.open(style_img_path+'.jpg'))
         onlineWriter.add_image('Input/StyleRef', style_transform(Image.open(style_img_path+'.jpg')))
-        styleRef = styleRef.unsqueeze(0).expand(opt.batchSize, 3, 360, 360).to(device)
+        styleRef = styleRef.unsqueeze(0).expand(1, 3, opt.imageSize, opt.imageSize).to(device)
 
         # Get style feature maps from VGG-16 layers relu1_2, relu2_2, relu3_3, relu4_3
         styleRef_features = lossNetwork(normalizeImageTensor(styleRef))
         styleRef_gram = [gram_matrix(feature) for feature in styleRef_features]
 
+        # Log initial parameters value
         onlineWriter.add_scalar('Input/Alpha (Content loss)', alpha)
         onlineWriter.add_scalar('Input/Beta (Style loss)', beta)
-        onlineWriter.add_scalar('Input/Gamma (TV loss)', gamma)
         onlineWriter.add_scalar('Input/Learning Rate', opt.lr, 0)
 
     # -----------------------------------------------------------------------------------
@@ -206,14 +193,20 @@ def main():
 
         for epoch in range(opt.niter):
             for i, frame in enumerate(dataloader):
+
+                # Skip until i == initIter if specified
                 if i < opt.initIter and (not initDone):
                     i = opt.initIter
                     continue
+                initDone = True
+
+                # Learning rate annealing
                 if i % 1000 == 0:
                     opt.lr = max(opt.lr/1.2, 1e-3)
-                initDone = True
+
                 onlineWriter.add_scalar('Input/Learning Rate', opt.lr, i)
 
+                # Reset optimizer
                 optimizer.zero_grad()
                 
                 ############################
@@ -234,7 +227,8 @@ def main():
                 # Calculate content loss using layer relu3_3 feature map from VGG-16
                 contentLoss = criterionL2(stylizedFrame_features[1], frame_features[1].expand_as(stylizedFrame_features[1]))
                 contentLoss *= alpha
-                # Sum style loss on all feature maps
+                
+                # Sum style loss on all VGG-16 feature maps (relu1_2, relu2_2, relu3_3, relu4_3)
                 styleLoss = 0.
                 for feature, refFeature in zip(stylizedFrame_features, styleRef_gram):
                     gramFeature = gram_matrix(feature)
@@ -247,7 +241,6 @@ def main():
                 ############################
                 # (2) Backpropagate and optimize network weights
                 ###########################
-
                 loss.backward()
                 optimizer.step()
                 
@@ -264,7 +257,7 @@ def main():
                         % (epoch, opt.niter, i, len(dataloader),
                             styleLoss, contentLoss))
 
-                if (i+1) % 1 == 0:
+                if (i+1) % 1500 == 0:
                     torch.save(reconet.state_dict(), '%s/reconet_epoch_%d.pth' % ("runs/output/batch", i))
                     vutils.save_image(stylizedFrame.data,
                             '%s/stylizedFrame_samples_batch_%03d.png' % ("runs/output/batch", i))
