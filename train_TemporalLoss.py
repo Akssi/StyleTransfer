@@ -28,18 +28,14 @@ from network import *
 
 class VideoFrameDataset(torch.utils.data.Dataset):
 
-    def __init__(self, root_dir, flow_dir, occlusion_dir, frameTransforms, eval=False):
+    def __init__(self, root_dir, flow_dir, occlusion_dir, frameTransforms, occTransform, eval=False):
         """
         Args:
             root_dir (string): Directory with all the frames.
         """
         self.videoFramesPath = []
         self.transform = frameTransforms
-        self.occTransform = transforms.Compose([
-                            transforms.Resize((360,640)),
-                            transforms.ToTensor(),
-                            transforms.Lambda(lambda x: (1-x)),
-                            ])
+        self.occTransform = occTransform
         self.flow_dir = flow_dir
         self.occlusion_dir = occlusion_dir
 
@@ -66,8 +62,6 @@ class VideoFrameDataset(torch.utils.data.Dataset):
             frame = Image.open(self.videoFramesPath[idx]).convert('RGB')
         frame = self.transform(frame)
         flow = flowlib.readFlow(os.path.join(self.flow_dir, "{:06d}.flo".format(idx)))
-        # flow = Image.open(os.path.join(self.flow_dir, "{:05d}.png".format(idx))).convert('RGB')
-        # flow = self.transform(flow)
         flow = transforms.ToTensor()(flow)
         occ = self.occTransform(Image.open(os.path.join(self.occlusion_dir, "{:05d}.png".format(idx))).convert('RGB'))
         return (frame, flow, occ)
@@ -158,27 +152,18 @@ def warp(x, flo):
 
 def main():
     parser = argparse.ArgumentParser()
-    # parser.add_argument('--dataset', required=True, help='cifar10 | lsun | imagenet | folder | lfw | stylizedFrame')
     parser.add_argument('--dataroot', required=True, help='path to dataset')
     parser.add_argument('--occlusionDir', required=True, help='path to occlusion directory')
     parser.add_argument('--flowDir', required=True, help='path to flow directory')
-    parser.add_argument('--workers', type=int, help='number of data loading workers', default=0)
-    parser.add_argument('--batchSize', type=int, default=2, help='input batch size')
-    parser.add_argument('--imageSize', type=int, default=64, help='the height / width of the input image to network')
-    parser.add_argument('--nz', type=int, default=100, help='size of the latent z vector')
+    parser.add_argument('--imageSize', type=int, default=360, help='the height / width of the input image to network')
     parser.add_argument('--alpha', type=int, default=1e5)
     parser.add_argument('--beta', type=int, default=1e10)
-    parser.add_argument('--gamma', type=int, default=0)
     parser.add_argument('--niter', type=int, default=5, help='number of epochs to train for')
     parser.add_argument('--lr', type=float, default=1e-2, help='learning rate, default=0.001')
     parser.add_argument('--cuda', action='store_true', help='enables cuda')
-    parser.add_argument('--ngpu', type=int, default=1, help='number of GPUs to use')
-    parser.add_argument('--netG', default='', help="path to netG (to continue training)")
     parser.add_argument('--init', default='', help="path to reconet weights (to continue training/test)")
     parser.add_argument('--initIter',type=int, default=-1, help="path to reconet weights (to continue training/test)")
-    parser.add_argument('--outf', default='.', help='folder to output images and model checkpoints')
     parser.add_argument('--evalOutput', default='evalOutput', help='folder to output images and model checkpoints')
-    parser.add_argument('--manualSeed', type=int, help='manual seed')
     parser.add_argument('--eval', action='store_true', help='run on test data')
     parser.add_argument('--v', action='store_true', help='print to console')
     parser.add_argument('--style', type=int, default=0)
@@ -186,7 +171,7 @@ def main():
     opt = parser.parse_args()
 
     try:
-        os.makedirs(opt.outf)
+        os.makedirs(opt.evalOutput)
     except OSError:
         pass
 
@@ -203,39 +188,40 @@ def main():
     else:
         device = 'cpu'
 
-    if opt.manualSeed is None:
-        opt.manualSeed = random.randint(1, 10000)
-
-    np.random.seed(opt.manualSeed)
-    torch.manual_seed(opt.manualSeed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
     if opt.cuda:
-        torch.cuda.manual_seed_all(opt.manualSeed)
+        torch.cuda.manual_seed_all(seed)
 
-    colorTransform = transforms.Lambda(lambda x: x.mul(255))
+    # Setup image transforms
     transform = transforms.Compose([
-                transforms.Resize((360,640)),
+                transforms.Resize((opt.imageSize,opt.imageSize)),
                 transforms.ToTensor(),
                 transforms.Lambda(lambda x: x.mul(255)),
                 ])
+    transforms.Compose([
+                transforms.Resize((opt.imageSize,opt.imageSize)),
+                transforms.ToTensor(),
+                transforms.Lambda(lambda x: (1-x)),
+                ])
     style_transform = transforms.Compose([
-                transforms.Resize((360,640)),
+                transforms.Resize((opt.imageSize,opt.imageSize)),
                 transforms.ToTensor(),
                 transforms.Lambda(lambda x: (1-x).mul(255)),
                 ])
 
+    # Setup image dataset
     dataset = VideoFrameDataset(opt.dataroot, opt.flowDir, opt.occlusionDir, transform, opt.eval)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=2)
 
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=opt.batchSize)
-
+    # Loss factors
     alpha = opt.alpha
     beta = opt.beta
-    gamma = opt.gamma
     lambdaOutput = 2e3
     lambdaFeatureMap = 1e7
 
+    # Setup networks, optimizer, losses
     reconet = ReCoNet().to(device)
-
-    # setup optimizer
     optimizer = optim.Adam(reconet.parameters(), lr=opt.lr)
     criterionL2 = nn.MSELoss().to(device)
     noReduceCriterionL2 = nn.MSELoss(reduction= "none").to(device)
@@ -244,62 +230,67 @@ def main():
     for param in lossNetwork.parameters():
       param.requires_grad = False
 
-    # reconet.apply(weights_init)
     if opt.init != '':
             reconet.load_state_dict(torch.load(opt.init))
             initDone = False
 
+    # -----------------------------------------------------------------------------------
+    # Run training
+    # -----------------------------------------------------------------------------------
     if not opt.eval:
+
+        # Load style reference image
         style_names = ('autoportrait', 'candy', 'composition', 'mosaic', 'udnie', 'color')
         style_model_path = 'reconet/models/weights/'
         style_img_path = 'reconet/models/style/'+style_names[min(max(opt.style,0),5)]
 
-
         styleRef = transform(Image.open(style_img_path+'.jpg'))
         onlineWriter.add_image('Input/StyleRef', style_transform(Image.open(style_img_path+'.jpg')))
-        styleRef = styleRef.unsqueeze(0).expand(opt.batchSize, 3, 360, 640).to(device)
+        styleRef = styleRef.unsqueeze(0).expand(2, 3, opt.imageSize, opt.imageSize).to(device)
 
         # Get style feature maps from VGG-16 layers relu1_2, relu2_2, relu3_3, relu4_3
         styleRef_features = lossNetwork(normalizeImageTensor(styleRef))
         styleRef_gram = [gram_matrix(feature) for feature in styleRef_features]
 
+        # Log initial parameters value
         onlineWriter.add_scalar('Input/Alpha (Content loss)', alpha)
         onlineWriter.add_scalar('Input/Beta (Style loss)', beta)
-        onlineWriter.add_scalar('Input/Gamma (TV loss)', gamma)
         onlineWriter.add_scalar('Input/Lambda Output (Temporal loss)', lambdaOutput)
         onlineWriter.add_scalar('Input/Lambda Feature (Temporal loss)', lambdaFeatureMap)
         onlineWriter.add_scalar('Input/Learning Rate', opt.lr, 0)
-
-        # -----------------------------------------------------------------------------------
-        # Run training
-        # -----------------------------------------------------------------------------------
 
         if opt.init != '' and opt.initIter == -1:
             raise ValueError("--initIter undefined can't load checkpoint")
 
         for epoch in range(opt.niter):
             for i, (frame, flow, occ) in enumerate(dataloader):
+
+                # Skip until i == initIter if specified
                 if i < opt.initIter and (not initDone):
-                    i = opt.initIter
                     continue
-                if i % 1000 == 0:
-                    opt.lr = max(opt.lr/1.2, 1e-3)
                 initDone = True
+
+                # Learning rate annealing
+                if i % 1000 == 0:
+                    opt.lr = max(opt.lr/1.2, 1e-4)
+
                 onlineWriter.add_scalar('Input/Learning Rate', opt.lr, i)
 
+                # Reset optimizer
                 optimizer.zero_grad()
 
-                ############################
+                ######################################################
                 # (1) Generate Stylized Frame & Calculate Losses
-                ###########################
+                ######################################################
                 frame = Variable(frame.data.to(device))
                 occ = Variable(occ.data.to(device))
                 flow = torch.nn.functional.interpolate(flow, size=(frame.shape[2], frame.shape[3]), mode='bilinear')
                 flow = Variable(flow.data.to(device))
 
-                # Generate stylizd frame using ReCoNet
+                # Generate stylized frame using ReCoNet
                 featureMap, stylizedFrame = reconet(frame)
 
+                # Normalize images
                 stylizedFrame_norm = normalizeImageTensor(stylizedFrame)
                 frame_norm = normalizeImageTensor(frame)
 
@@ -307,6 +298,7 @@ def main():
                 stylizedFrame_features = lossNetwork(stylizedFrame_norm)
                 frame_features = lossNetwork(frame_norm)
 
+                # Calculate temporal loss at feature map level (occlusion and flow are downsampled using interpolation)
                 featureMapFlow = torch.nn.functional.interpolate(flow, size=(featureMap.shape[2],featureMap.shape[3]), mode='bilinear', align_corners = False)
                 featureMapOcc = torch.nn.functional.interpolate(occ, size=(featureMap.shape[2],featureMap.shape[3]), mode='bilinear', align_corners = False)
                 warpedFeatureMap = warp(featureMap, featureMapFlow)
@@ -316,44 +308,41 @@ def main():
                 featureTemporalLoss = torch.mean(featureTemporalLoss)
                 featureTemporalLoss *= lambdaFeatureMap
 
+                # Calculate temporal loss with luminosity wrapping at output level
                 warpedStylizedFrame = warp(stylizedFrame[0].unsqueeze(0), flow[0].unsqueeze(0))
                 warpedFrame = warpFrame(frame, flow)
 
+                outputTerm = (stylizedFrame[1] - warpedStylizedFrame[0])
                 inputTerm = (frame[1] - warpedFrame[0])
                 inputTerm = 0.2126 * inputTerm[0,:,:] + 0.7152 * inputTerm[1,:,:] + 0.0722 * inputTerm[2,:,:]
-                outputTerm = (stylizedFrame[1] - warpedStylizedFrame[0])
                 inputTerm = inputTerm.expand_as(outputTerm)
 
                 outputTemporalLoss = (1/(frame.shape[1]*frame.shape[2]*frame.shape[3])) * (occ * noReduceCriterionL2(outputTerm, inputTerm))
                 outputTemporalLoss = torch.mean(outputTemporalLoss)
                 outputTemporalLoss *= lambdaOutput
 
-                # totalDivergenceLoss = gamma * (torch.sum(torch.abs(stylizedFrame_norm[:, :, :, :-1] - stylizedFrame_norm[:, :, :, 1:])) \
-                #     + torch.sum(torch.abs(stylizedFrame_norm[:, :, :-1, :] - stylizedFrame_norm[:, :, 1:, :])))
                 # Calculate content loss using layer relu3_3 feature map from VGG-16
                 contentLoss = criterionL2(stylizedFrame_features[2], frame_features[2].expand_as(stylizedFrame_features[2]))
-
                 contentLoss *= alpha
-                # Sum style loss on all feature maps
+
+                # Sum style loss on all VGG-16 feature maps (relu1_2, relu2_2, relu3_3, relu4_3)
                 styleLoss = 0.
                 for feature, refFeature in zip(stylizedFrame_features, styleRef_features):
-                    # gramFeature = gram_matrix(feature)
                     styleLoss += criterionL2(feature, refFeature.expand_as(feature))
                 styleLoss *= beta
 
                 # Final loss
                 loss = outputTemporalLoss + featureTemporalLoss + contentLoss + styleLoss
 
-                ############################
+                ######################################################
                 # (2) Backpropagate and optimize network weights
-                ###########################
-
+                ######################################################
                 loss.backward()
                 optimizer.step()
 
-                ############################
+                ######################################################
                 # (3) Log and do checkpointing
-                ###########################
+                ######################################################
                 onlineWriter.add_scalar('Loss/Current Iter/ContentLoss', contentLoss, i)
                 onlineWriter.add_scalar('Loss/Current Iter/StyleLoss', styleLoss, i)
                 onlineWriter.add_scalar('Loss/Current Iter/OutputTemporalLoss', outputTemporalLoss, i)
@@ -366,13 +355,10 @@ def main():
                         % (epoch, opt.niter, i, len(dataloader),
                             styleLoss, contentLoss))
 
-                if (i+1) % 100 == 0:
+                if (i+1) % 1500 == 0:
                     torch.save(reconet.state_dict(), '%s/reconet_epoch_%d.pth' % ("runs/output/batch", i))
                     vutils.save_image(stylizedFrame.data,
                             '%s/stylizedFrame_samples_batch_%03d.png' % ("runs/output/batch", i))
-                    # onlineWriter.add_image('Output/Current Iter/Frame', colorTransform(frame), i)
-                    # onlineWriter.add_image('Output/Current Iter/WarpedFrame', colorTransform(warpedFrame), i)
-                    # onlineWriter.add_image('Output/Current Iter/StylizedFrame', colorTransform(stylizedFrame), i)
                     onlineWriter.add_image('Output/Current Iter/StylizedFrame', (stylizedFrame), i)
                     onlineWriter.add_image('Output/Current Iter/Frame', (occ*frame), i)
                     onlineWriter.add_image('Output/Current Iter/WarpedFrame', (occ*warpedFrame), i)
@@ -384,11 +370,9 @@ def main():
             onlineWriter.add_scalar('Loss/Current Iter/OutputTemporalLoss', outputTemporalLoss, epoch)
             onlineWriter.add_scalar('Loss/Current Iter/FeatureTemporalLoss', featureTemporalLoss, epoch)
             onlineWriter.add_scalar('Loss/FinalLoss', loss, epoch)
-            # onlineWriter.add_image('Output/Frame', colorTransform(frame), epoch)
-            # onlineWriter.add_image('Output/StylizedFrame', colorTransform(stylizedFrame), epoch)
             onlineWriter.add_image('Output/Frame', (frame), epoch)
             onlineWriter.add_image('Output/StylizedFrame', (stylizedFrame), epoch)
-            # do checkpointing
+            # Do checkpointing
             torch.save(reconet.state_dict(), '%s/reconet_epoch_%d.pth' % ("runs/output", epoch))
 
     # -----------------------------------------------------------------------------------
@@ -407,42 +391,9 @@ def main():
             # Generate stylizd frame using ReCoNet
             _, stylizedFrame = reconet(frame)
 
-            # totalDivergenceLoss = torch.sum(torch.abs(stylizedFrame[:,:,:,:-1] - stylizedFrame[:,:,:,1:])) \
-            #     + torch.sum(torch.abs(stylizedFrame[:,:,:-1,:] - stylizedFrame[:,:,1:,:]))
-
             stylizedFrame_norm = normalizeImageTensor(stylizedFrame)
             frame_norm = normalizeImageTensor(frame)
 
-            # # Get features maps from VGG-16 network for the stylized and actual frame
-            # stylizedFrame_features = lossNetwork(stylizedFrame_norm)
-            # frame_features = lossNetwork(frame_norm)
-
-            # # Calculate content loss using layer relu3_3 feature map from VGG-16
-            # contentLoss = criterionL2(stylizedFrame_features[1], frame_features[1])
-            # contentLoss *= alpha
-            # # Sum style loss on all feature maps
-            # styleLoss = 0.
-            # for feature, refFeature in zip(stylizedFrame_features, styleRef_gram):
-            #     gramFeature = gram_matrix(feature)
-            #     styleLoss += criterionL2(gramFeature, refFeature)
-            # styleLoss *= beta
-
-            # Final loss
-            # loss = contentLoss + styleLoss
-                # + gamma * totalDivergenceLoss
-
-            ############################
-            # (3) Log and do checkpointing
-            ###########################
-            # onlineWriter.add_scalar('Loss/Current Iter/ContentLoss', contentLoss, i)
-            # onlineWriter.add_scalar('Loss/Current Iter/StyleLoss', styleLoss, i)
-            # onlineWriter.add_scalar('Loss/Current Iter/TVLoss', totalDivergenceLoss, i)
-            # onlineWriter.add_scalar('Loss/Current Iter/FinalLoss', loss, i)
-
-            # # Write to console
-            # print('[%d/%d][%d/%d] Style Loss: %.4f Content Loss: %.4f'
-            #     % (1, 1, i, len(dataloader),
-            #         styleLoss, contentLoss))
             vutils.save_image(stylizedFrame.data,
                     '%s/stylizedFrame_%03d.png' % (opt.evalOutput, i))
             vutils.save_image(frame.data,
