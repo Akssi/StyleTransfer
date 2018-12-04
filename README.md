@@ -1,4 +1,4 @@
-# ReCoNet
+# Style Transfer
 This the implementation of style transfer based on the ReCoNet paper [arXiv](https://arxiv.org/abs/1807.01197)
 
 Training scripts were done by me according to multiple papers (see references)
@@ -13,6 +13,8 @@ The savedModel folder contains a few saved weights for diffrent style and for di
 The training for this network was done using a two diffrent dataset. 
 [COCO Dataset](http://cocodataset.org/#home)
 [Monkaa Dataset](https://lmb.informatik.uni-freiburg.de/resources/datasets/SceneFlowDatasets.en.html)
+
+# Results
 
 
 
