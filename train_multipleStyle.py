@@ -72,9 +72,7 @@ class VideoFrameDataset(torch.utils.data.Dataset):
             frame = webp.load_image(self.videoFramesPath[idx], "RGB")
         else:
             frame = Image.open(self.videoFramesPath[idx]).convert('RGB')
-        # greyImage  = webp.open(self.greyImgsPath[idx])
         frame = self.transform(frame)
-        # greyImage  = self.transform(greyImage)
         return frame
 
 
@@ -87,7 +85,6 @@ def normalizeImageTensor(img):
 
 def main():
     parser = argparse.ArgumentParser()
-    # parser.add_argument('--dataset', required=True, help='cifar10 | lsun | imagenet | folder | lfw | stylizedFrame')
     parser.add_argument('--dataroot', required=True, help='path to dataset')
     parser.add_argument('--datarootStyle', required=True, help='path to dataset of style images')
     parser.add_argument('--workers', type=int, help='number of data loading workers', default=0)
@@ -118,7 +115,6 @@ def main():
         writer.writerow('New experiment')
 
     opt = parser.parse_args()
-    # print(opt)
 
     try:
         os.makedirs(opt.outf)
@@ -219,8 +215,6 @@ def main():
                 ############################
                 # (1) Generate Stylized Frame & Calculate Losses
                 ###########################
-                # frame.copy_(img)
-                # frame = Variable(frame)
                 styleRefPath, _ = styleDataset.imgs[(i + random.randint(0, 10))  % len(styleDataset)]
                 styleRef = transform(styleDataset.loader(styleRefPath))
                 styleRef = styleRef.unsqueeze(0).expand(opt.batchSize, 3, 256, 256).to(device)
@@ -236,9 +230,6 @@ def main():
 
                 # Generate stylizd frame using ReCoNet
                 _, stylizedFrame = reconet(frame)
-                
-                # totalDivergenceLoss = torch.sum(torch.abs(stylizedFrame[:,:,:,:-1] - stylizedFrame[:,:,:,1:])) \
-                #     + torch.sum(torch.abs(stylizedFrame[:,:,:-1,:] - stylizedFrame[:,:,1:,:]))
                 
                 stylizedFrame_norm = normalizeImageTensor(stylizedFrame)
                 frame_norm = normalizeImageTensor(frame)
@@ -322,43 +313,10 @@ def main():
             # Generate stylizd frame using ReCoNet
             stylizedFrame = reconet(frame)
             
-            # totalDivergenceLoss = torch.sum(torch.abs(stylizedFrame[:,:,:,:-1] - stylizedFrame[:,:,:,1:])) \
-            #     + torch.sum(torch.abs(stylizedFrame[:,:,:-1,:] - stylizedFrame[:,:,1:,:]))
             
             stylizedFrame_norm = normalizeImageTensor(stylizedFrame)
             frame_norm = normalizeImageTensor(frame)
-
-            # Get features maps from VGG-16 network for the stylized and actual frame
-            stylizedFrame_features = lossNetwork(stylizedFrame_norm)
-            frame_features = lossNetwork(frame_norm)
             
-            # Calculate content loss using layer relu3_3 feature map from VGG-16
-            contentLoss = criterionL2(stylizedFrame_features[1], frame_features[1])
-            contentLoss *= alpha
-            # Sum style loss on all feature maps
-            styleLoss = 0.
-            for feature, refFeature in zip(stylizedFrame_features, styleRef_gram):
-                gramFeature = gram_matrix(feature)
-                styleLoss += criterionL2(gramFeature, refFeature)
-            styleLoss *= beta
-
-            # Final loss
-            loss = contentLoss + styleLoss 
-                # + gamma * totalDivergenceLoss
-                        
-            ############################
-            # (3) Log and do checkpointing
-            ###########################
-            # onlineWriter.add_scalar('Loss/Current Iter/ContentLoss', contentLoss, i)
-            # onlineWriter.add_scalar('Loss/Current Iter/StyleLoss', styleLoss, i)
-            # onlineWriter.add_scalar('Loss/Current Iter/TVLoss', totalDivergenceLoss, i)
-            # onlineWriter.add_scalar('Loss/Current Iter/FinalLoss', loss, i)
-
-            # # Write to console
-            # print('[%d/%d][%d/%d] Style Loss: %.4f Content Loss: %.4f'
-            #     % (1, 1, i, len(dataloader),
-            #         styleLoss, contentLoss))
-
             vutils.save_image(stylizedFrame.data,
                     '%s/stylizedFrame_%03d.png' % (opt.evalOutput, i))
        
