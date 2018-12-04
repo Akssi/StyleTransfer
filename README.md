@@ -3,9 +3,9 @@ This the implementation of style transfer based on the ReCoNet paper [arXiv](htt
 
 Training scripts were done by me according to multiple papers (see references)
 
-The script train.py trains the network using a single style image for style refrence.
-The script train_multipleStyle.py trains the network using a dataset for both the content images and the style images.
-The script train_temporalLoss.py trains the network with the additional temporal loss function
+The script train.py trains the network using a single style image for style refrence.  
+The script train_multipleStyle.py trains the network using a dataset for both the content images and the style images.  
+The script train_temporalLoss.py trains the network with the additional temporal loss function.  
 
 The savedModel folder contains a few saved weights for diffrent style and for diffrent parameter values.
 
