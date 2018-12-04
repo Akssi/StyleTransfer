@@ -27,7 +27,15 @@ Here are the stylized versions of the following picture according to multiple st
 <img align="left" src="Results/Udnie_stylized.png" alt="Udnie - Reference" width="20%">
 <img align="left" src="Results/Colors_stylized.png" alt="Colors - Reference" width="20%">
 <img align="left" src="Results/Mosaic_stylized.png" alt="Mosaic - Reference" width="20%">
-<img align="left" src="Results/Composition_stylized.png" alt="Composition - Reference" width="20%">
+<img align="left" src="Results/Composition_stylized.png" alt="Composition - Reference" width="20%">  
+<br/><br/><br/><br/><br/>  
+<br/><br/><br/><br/><br/>  
 
-
-
+# References  
+1. Chang Gao, Derun Gu, Fangjun Zhang, and Yizhou Yu. (1 November 2018). ReCoNet: Real-time Coherent Video Style Transfer Network. Retrieved from  https://arxiv.org/pdf/1807.01197.pdf
+2. Agrim Gupta, Justin Johnson, Alexandre Alahi, and Li Fei-Fei. (5 May 2017) Characterizing and Improving Stability in Neural Style Transfer. Retrieved from https://arxiv.org/pdf/1705.02092.pdf
+3. Deqing Sun and Xiaodong Yang and Ming-Yu Liu and Jan Kautz. (2018). PWC-Net: CNNs for Optical Flow Using Pyramid, Warping, and Cost Volume. Dans: CVPR. Retrieved from https://github.com/NVlabs/PWC-Net/tree/master/PyTorch
+4.  N. Mayer and E. Ilg and P. Hausser and P. Fischer and D. Cremers and A. Dosovitskiy and T. Brox. (2016). A Large Dataset to Train Convolutional Networks for Disparity, Optical Flow, and Scene Flow Estimation. In: IEEE International Conference on Computer Vision and Pattern Recognition (CVPR). Retrieved from https://lmb.informatik.uni-freiburg.de/resources/datasets/SceneFlowDatasets.en.html
+5. Common Object in Context Dataset. Retrieved from http://cocodataset.org/#download
+6. Lai, Wei-Sheng and Huang, Jia-Bin and Wang, Oliver and Shechtman, Eli and Yumer, Ersin and Yang, Ming-Hsuan. (2018). Learning Blind Video Temporal Consistency. In: European Conference on Computer Vision. Retrieved from https://github.com/phoenix104104/fast_blind_video_consistency
+7. Justin Johnson, Alexandre Alahi, Li Fei-Fei. (27 March 2016) Perceptual Losses for Real-Time Style Transfer and Super-Resolution. Retrieved from https://arxiv.org/pdf/1603.08155.pdf
