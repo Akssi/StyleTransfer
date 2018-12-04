@@ -1,13 +1,19 @@
 # ReCoNet
-Testing Code for ReCoNet: Real-time Coherent Video Style Transfer Network.
+This the implementation of style transfer based on the ReCoNet paper [arXiv](https://arxiv.org/abs/1807.01197)
 
-This is my final year project at the University of Hong Kong. The project page is available at [FYP17004](http://i.cs.hku.hk/fyp/2017/fyp17004/). Other authors are Derun Gu, Fangjun Zhang, and Yizhou Yu.
+Training scripts were done by me according to multiple papers (see references)
 
-## Code
-Training code and model binary files are currently unavailable.
+The script train.py trains the network using a single style image for style refrence.
+The script train_multipleStyle.py trains the network using a dataset for both the content images and the style images.
+The script train_temporalLoss.py trains the network with the additional temporal loss function
 
-## Paper
-Paper available at [arXiv](https://arxiv.org/abs/1807.01197).
+The savedModel folder contains a few saved weights for diffrent style and for diffrent parameter values.
 
-## Video
-Demo video available at [YouTube](https://youtu.be/vhBRanZmdH0).
+# Datasets
+The training for this network was done using a two diffrent dataset. 
+[COCO Dataset](http://cocodataset.org/#home)
+[Monkaa Dataset](https://lmb.informatik.uni-freiburg.de/resources/datasets/SceneFlowDatasets.en.html)
+
+
+
+
