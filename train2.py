@@ -145,7 +145,7 @@ def main():
         torch.cuda.manual_seed_all(opt.manualSeed)
 
     transform = transforms.Compose([
-                transforms.Resize((360,360)),
+                transforms.Resize(360, 360),
                 transforms.ToTensor(),
                 transforms.Lambda(lambda x: x.mul(255)),
                 ])
@@ -172,35 +172,34 @@ def main():
     lossNetwork = Vgg16().to(device)
 
     for param in lossNetwork.parameters():
-      param.requires_grad = False
+        param.requires_grad = False
 
-    # reconet.apply(weights_init)
     if opt.init != '':
-            reconet.load_state_dict(torch.load(opt.init))
-            initDone = False
+        reconet.load_state_dict(torch.load(opt.init))
+        initDone = False
 
-    style_names = ('autoportrait', 'candy', 'composition', 'edtaonisl', 'udnie')
-    style_model_path = 'models/weights/'
-    style_img_path = 'models/style/'+style_names[min(max(opt.style,0),4)]
+    if not opt.eval:
+        style_names = ('autoportrait', 'candy', 'composition', 'mosaic', 'udnie', 'color')
+        style_model_path = 'reconet/models/weights/'
+        style_img_path = 'reconet/models/style/'+style_names[min(max(opt.style,0),5)]
 
 
-    styleRef = transform(Image.open(style_img_path+'.jpg'))
-    onlineWriter.add_image('Input/StyleRef', style_transform(Image.open(style_img_path+'.jpg')))
-    styleRef = styleRef.unsqueeze(0).expand(opt.batchSize, 3, 360, 360).to(device)
+        styleRef = transform(Image.open(style_img_path+'.jpg'))
+        onlineWriter.add_image('Input/StyleRef', style_transform(Image.open(style_img_path+'.jpg')))
+        styleRef = styleRef.unsqueeze(0).expand(opt.batchSize, 3, 360, 360).to(device)
 
-    # Get style feature maps from VGG-16 layers relu1_2, relu2_2, relu3_3, relu4_3
-    styleRef_features = lossNetwork(normalizeImageTensor(styleRef))
-    styleRef_gram = [gram_matrix(feature) for feature in styleRef_features]
+        # Get style feature maps from VGG-16 layers relu1_2, relu2_2, relu3_3, relu4_3
+        styleRef_features = lossNetwork(normalizeImageTensor(styleRef))
+        styleRef_gram = [gram_matrix(feature) for feature in styleRef_features]
 
-    onlineWriter.add_scalar('Input/Alpha (Content loss)', alpha)
-    onlineWriter.add_scalar('Input/Beta (Style loss)', beta)
-    onlineWriter.add_scalar('Input/Gamma (TV loss)', gamma)
-    onlineWriter.add_scalar('Input/Learning Rate', opt.lr, 0)
+        onlineWriter.add_scalar('Input/Alpha (Content loss)', alpha)
+        onlineWriter.add_scalar('Input/Beta (Style loss)', beta)
+        onlineWriter.add_scalar('Input/Gamma (TV loss)', gamma)
+        onlineWriter.add_scalar('Input/Learning Rate', opt.lr, 0)
 
     # -----------------------------------------------------------------------------------
     # Run training
     # -----------------------------------------------------------------------------------
-    if not opt.eval:
     
         if opt.init != '' and opt.initIter == -1:
             raise ValueError("--initIter undefined can't load checkpoint")
@@ -220,15 +219,10 @@ def main():
                 ############################
                 # (1) Generate Stylized Frame & Calculate Losses
                 ###########################
-                # frame.copy_(img)
-                # frame = Variable(frame)
                 frame = Variable(frame.data.to(device))
 
                 # Generate stylizd frame using ReCoNet
-                stylizedFrame = reconet(frame)
-                
-                # totalDivergenceLoss = torch.sum(torch.abs(stylizedFrame[:,:,:,:-1] - stylizedFrame[:,:,:,1:])) \
-                #     + torch.sum(torch.abs(stylizedFrame[:,:,:-1,:] - stylizedFrame[:,:,1:,:]))
+                _, stylizedFrame = reconet(frame)
                 
                 stylizedFrame_norm = normalizeImageTensor(stylizedFrame)
                 frame_norm = normalizeImageTensor(frame)
@@ -238,7 +232,7 @@ def main():
                 frame_features = lossNetwork(frame_norm)
                 
                 # Calculate content loss using layer relu3_3 feature map from VGG-16
-                contentLoss = criterionL2(stylizedFrame_features[2], frame_features[2].expand_as(stylizedFrame_features[1]))
+                contentLoss = criterionL2(stylizedFrame_features[1], frame_features[1].expand_as(stylizedFrame_features[1]))
                 contentLoss *= alpha
                 # Sum style loss on all feature maps
                 styleLoss = 0.
@@ -249,7 +243,6 @@ def main():
 
                 # Final loss
                 loss = contentLoss + styleLoss 
-                    # + gamma * totalDivergenceLoss
                 
                 ############################
                 # (2) Backpropagate and optimize network weights
@@ -263,7 +256,6 @@ def main():
                 ###########################
                 onlineWriter.add_scalar('Loss/Current Iter/ContentLoss', contentLoss, i)
                 onlineWriter.add_scalar('Loss/Current Iter/StyleLoss', styleLoss, i)
-                # onlineWriter.add_scalar('Loss/Current Iter/TVLoss', totalDivergenceLoss, i)
                 onlineWriter.add_scalar('Loss/Current Iter/FinalLoss', loss, i)
 
                 if opt.v:
@@ -272,20 +264,16 @@ def main():
                         % (epoch, opt.niter, i, len(dataloader),
                             styleLoss, contentLoss))
 
-                # with open('log.csv', 'a') as f:
-                #     writer = csv.writer(f)
-                #     writer.writerow([epoch, i, styleLoss, contentLoss])
-                if (i+1) % 1500 == 0:
-                    torch.save(reconet.state_dict(), '%s/reconet_epoch_%d.pth' % (opt.outf, i))
+                if (i+1) % 1 == 0:
+                    torch.save(reconet.state_dict(), '%s/reconet_epoch_%d.pth' % ("runs/output/batch", i))
                     vutils.save_image(stylizedFrame.data,
-                            '%s/stylizedFrame_samples_batch_%03d.png' % (style_model_path, i))
+                            '%s/stylizedFrame_samples_batch_%03d.png' % ("runs/output/batch", i))
                     onlineWriter.add_image('Output/Current Iter/Frame', (frame), i)
                     onlineWriter.add_image('Output/Current Iter/StylizedFrame', (stylizedFrame), i)
 
             # Write to online logs
             onlineWriter.add_scalar('Loss/ContentLoss', contentLoss, epoch)
             onlineWriter.add_scalar('Loss/StyleLoss', styleLoss, epoch)
-            # onlineWriter.add_scalar('Loss/TVLoss', totalDivergenceLoss, epoch)
             onlineWriter.add_scalar('Loss/FinalLoss', loss, epoch)
             onlineWriter.add_image('Output/Frame', frame, epoch)
             onlineWriter.add_image('Output/StylizedFrame', stylizedFrame, epoch)
@@ -299,6 +287,7 @@ def main():
     else:
         reconet.eval()
 
+
         for i, frame in enumerate(dataloader):
             
             ############################
@@ -307,48 +296,17 @@ def main():
             frame = frame.to(device)
 
             # Generate stylizd frame using ReCoNet
-            stylizedFrame = reconet(frame)
-            
-            # totalDivergenceLoss = torch.sum(torch.abs(stylizedFrame[:,:,:,:-1] - stylizedFrame[:,:,:,1:])) \
-            #     + torch.sum(torch.abs(stylizedFrame[:,:,:-1,:] - stylizedFrame[:,:,1:,:]))
-            
+            _, stylizedFrame = reconet(frame)
+
             stylizedFrame_norm = normalizeImageTensor(stylizedFrame)
             frame_norm = normalizeImageTensor(frame)
 
-            # Get features maps from VGG-16 network for the stylized and actual frame
-            stylizedFrame_features = lossNetwork(stylizedFrame_norm)
-            frame_features = lossNetwork(frame_norm)
-            
-            # Calculate content loss using layer relu3_3 feature map from VGG-16
-            contentLoss = criterionL2(stylizedFrame_features[1], frame_features[1])
-            contentLoss *= alpha
-            # Sum style loss on all feature maps
-            styleLoss = 0.
-            for feature, refFeature in zip(stylizedFrame_features, styleRef_gram):
-                gramFeature = gram_matrix(feature)
-                styleLoss += criterionL2(gramFeature, refFeature)
-            styleLoss *= beta
-
-            # Final loss
-            loss = contentLoss + styleLoss 
-                # + gamma * totalDivergenceLoss
-                        
-            ############################
-            # (3) Log and do checkpointing
-            ###########################
-            # onlineWriter.add_scalar('Loss/Current Iter/ContentLoss', contentLoss, i)
-            # onlineWriter.add_scalar('Loss/Current Iter/StyleLoss', styleLoss, i)
-            # onlineWriter.add_scalar('Loss/Current Iter/TVLoss', totalDivergenceLoss, i)
-            # onlineWriter.add_scalar('Loss/Current Iter/FinalLoss', loss, i)
-
-            # # Write to console
-            # print('[%d/%d][%d/%d] Style Loss: %.4f Content Loss: %.4f'
-            #     % (1, 1, i, len(dataloader),
-            #         styleLoss, contentLoss))
-
             vutils.save_image(stylizedFrame.data,
                     '%s/stylizedFrame_%03d.png' % (opt.evalOutput, i))
-       
+            onlineWriter.add_image('Output/Current Iter/Frame', (frame), i)
+            onlineWriter.add_image('Output/Current Iter/StylizedFrame', (stylizedFrame), i)
+
+        onlineWriter.close()
         
 if __name__ == "__main__":
     main()

@@ -4,21 +4,7 @@ import numpy as np
 from torchvision.models import vgg16
 from collections import namedtuple
 
-# class Vgg16(torch.nn.Module):
-#     def __init__(self, device = "cpu"):
-#         super(Vgg16, self).__init__()
-#         features = list(vgg16(pretrained = True).features)[:23]
-#         self.features = nn.ModuleList(features).to(device).eval() 
-#         self.layers = [3,8,15,22]
-        
-#     def forward(self, x):
-#         results = []
-#         for ii,model in enumerate(self.features):
-#             x = model(x)
-#             if ii in self.layers:
-#                 results.append(x.detach())
-#         return results
-
+# From https://github.com/pytorch/examples/blob/master/fast_neural_style/neural_style/vgg.py
 class Vgg16(torch.nn.Module):
     def __init__(self, device='cpu'):
         super(Vgg16, self).__init__()
@@ -51,6 +37,9 @@ class Vgg16(torch.nn.Module):
         vgg_outputs = namedtuple("VggOutputs", ['relu1_2', 'relu2_2', 'relu3_3', 'relu4_3'])
         out = vgg_outputs(h_relu1_2, h_relu2_2, h_relu3_3, h_relu4_3)
         return out
+
+
+# Rest of the file based on https://github.com/irsisyphus/reconet
 
 class SelectiveLoadModule(torch.nn.Module):
     """Only load layers in trained models with the same name."""
@@ -175,10 +164,11 @@ class ReCoNet(SelectiveLoadModule):
         self.style_deconv3 = ConvTanh(32, 3, kernel_size=9, stride=1)
 
     def forward(self, x):
-        return self.style_deconv3(self.style_deconv2(self.style_deconv1(
-            self.style_res5(self.style_res4(self.style_res3(self.style_res2(self.style_res1(
+        features = self.style_res5(self.style_res4(self.style_res3(self.style_res2(self.style_res1(
                 self.style_conv3(self.style_conv2(self.style_conv1(x)))
-            ))))))))
+                )))))
+
+        return (features, self.style_deconv3(self.style_deconv2(self.style_deconv1(features))))
 
 
 class ReCoNet2(SelectiveLoadModule):

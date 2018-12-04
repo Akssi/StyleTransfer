@@ -94,8 +94,8 @@ def main():
     parser.add_argument('--batchSize', type=int, default=4, help='input batch size')
     parser.add_argument('--imageSize', type=int, default=64, help='the height / width of the input image to network')
     parser.add_argument('--nz', type=int, default=100, help='size of the latent z vector')
-    parser.add_argument('--alpha', type=int, default=1e5)
-    parser.add_argument('--beta', type=int, default=1e10)
+    parser.add_argument('--alpha', type=int, default=1e3)
+    parser.add_argument('--beta', type=int, default=2e10)
     parser.add_argument('--niter', type=int, default=2, help='number of epochs to train for')
     parser.add_argument('--lr', type=float, default=1e-2, help='learning rate, default=0.001')
     parser.add_argument('--cuda', action='store_true', help='enables cuda')
@@ -147,12 +147,12 @@ def main():
         torch.cuda.manual_seed_all(opt.manualSeed)
 
     transform = transforms.Compose([
-                transforms.Resize((360,360)),
+                transforms.Resize((256,256)),
                 transforms.ToTensor(),
                 transforms.Lambda(lambda x: x.mul(255)),
                 ])
     style_transform = transforms.Compose([
-                transforms.Resize((360,360)),
+                transforms.Resize((256,256)),
                 transforms.ToTensor(),
                 transforms.Lambda(lambda x: (1-x).mul(255)),
                 ])
@@ -189,7 +189,7 @@ def main():
 
 
 
-    onlineWriter.add_scalar('Input/Alpha (Content loss)', alpha)
+    onlineWriter.add_scalar('Input/Alpha (Content loss)', alpha, 0)
     onlineWriter.add_scalar('Input/Beta (Style loss)', beta)
     onlineWriter.add_scalar('Input/Gamma (TV loss)', gamma)
     onlineWriter.add_scalar('Input/Learning Rate', opt.lr, 0)
@@ -208,9 +208,11 @@ def main():
                     i = opt.initIter
                     continue
                 if i % 2000 == 0:
-                    opt.lr = max(opt.lr/1.25, 1e-4)
+                    opt.lr = max(opt.lr/1.15, 1e-4)
+                    alpha = min(alpha*1.25, 1e5)
                 initDone = True
                 onlineWriter.add_scalar('Input/Learning Rate', opt.lr, i)
+                onlineWriter.add_scalar('Input/Alpha (Content loss)', alpha, i)
 
                 optimizer.zero_grad()
                 
@@ -219,16 +221,21 @@ def main():
                 ###########################
                 # frame.copy_(img)
                 # frame = Variable(frame)
-                styleRefPath, _ = styleDataset.imgs[(i + random.randint(0, 50))  % len(styleDataset)]
+                styleRefPath, _ = styleDataset.imgs[(i + random.randint(0, 10))  % len(styleDataset)]
                 styleRef = transform(styleDataset.loader(styleRefPath))
-                styleRef = styleRef.unsqueeze(0).expand(opt.batchSize, 3, 360, 360).to(device)
+                styleRef = styleRef.unsqueeze(0).expand(opt.batchSize, 3, 256, 256).to(device)
+                if frame.shape[0] > 1:
+                    for j in range(frame.shape[0] - 1):
+                        styleRefPath, _ = styleDataset.imgs[(i + j * random.randint(10, 15))  % len(styleDataset)]
+                        styleRef[1+j,:,:,:] = transform(styleDataset.loader(styleRefPath))
+
 
                 # Get style feature maps from VGG-16 layers relu1_2, relu2_2, relu3_3, relu4_3
 
                 frame = Variable(frame.data.to(device))
 
                 # Generate stylizd frame using ReCoNet
-                stylizedFrame = reconet(frame)
+                _, stylizedFrame = reconet(frame)
                 
                 # totalDivergenceLoss = torch.sum(torch.abs(stylizedFrame[:,:,:,:-1] - stylizedFrame[:,:,:,1:])) \
                 #     + torch.sum(torch.abs(stylizedFrame[:,:,:-1,:] - stylizedFrame[:,:,1:,:]))
@@ -245,7 +252,11 @@ def main():
                 styleRef_gram = [gram_matrix(feature) for feature in styleRef_features]
                 
                 # Calculate content loss using layer relu3_3 feature map from VGG-16
-                contentLoss = criterionL2(stylizedFrame_features[1], frame_features[1].expand_as(stylizedFrame_features[1]))
+                contentLossShallow = criterionL2(stylizedFrame_features[2], frame_features[2].expand_as(stylizedFrame_features[2]))
+                contentLossDeep = criterionL2(stylizedFrame_features[3], frame_features[3].expand_as(stylizedFrame_features[3]))
+
+                contentLossShallow *= 0.5
+                contentLoss = contentLossShallow + contentLossDeep
                 contentLoss *= alpha
                 # Sum style loss on all feature maps
                 styleLoss = 0.
@@ -255,8 +266,7 @@ def main():
                 styleLoss *= beta
 
                 # Final loss
-                loss = contentLoss + styleLoss 
-                    # + gamma * totalDivergenceLoss
+                loss = contentLoss + styleLoss
                 
                 ############################
                 # (2) Backpropagate and optimize network weights
@@ -270,7 +280,6 @@ def main():
                 ###########################
                 onlineWriter.add_scalar('Loss/Current Iter/ContentLoss', contentLoss, i)
                 onlineWriter.add_scalar('Loss/Current Iter/StyleLoss', styleLoss, i)
-                # onlineWriter.add_scalar('Loss/Current Iter/TVLoss', totalDivergenceLoss, i)
                 onlineWriter.add_scalar('Loss/Current Iter/FinalLoss', loss, i)
 
                 if opt.v:
@@ -279,10 +288,7 @@ def main():
                         % (epoch, opt.niter, i, len(dataloader),
                             styleLoss, contentLoss))
 
-                # with open('log.csv', 'a') as f:
-                #     writer = csv.writer(f)
-                #     writer.writerow([epoch, i, styleLoss, contentLoss])
-                if (i+1) % 1500 == 0:
+                if (i) % 1500 == 0:
                     torch.save(reconet.state_dict(), '%s/reconet_epoch_%d.pth' % ("runs/output/batch", i))
                     vutils.save_image(stylizedFrame.data,
                             '%s/stylizedFrame_samples_batch_%03d.png' % ("runs/output/batch", i))
@@ -293,7 +299,6 @@ def main():
             # Write to online logs
             onlineWriter.add_scalar('Loss/ContentLoss', contentLoss, epoch)
             onlineWriter.add_scalar('Loss/StyleLoss', styleLoss, epoch)
-            # onlineWriter.add_scalar('Loss/TVLoss', totalDivergenceLoss, epoch)
             onlineWriter.add_scalar('Loss/FinalLoss', loss, epoch)
             onlineWriter.add_image('Output/Frame', frame, epoch)
             onlineWriter.add_image('Output/StylizedFrame', stylizedFrame, epoch)
